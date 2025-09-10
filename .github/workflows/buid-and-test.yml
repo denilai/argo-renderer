@@ -72,15 +72,15 @@ jobs:
       - name: Build
         # Собираем бинарник, добавляя .exe для Windows
         run: |
-          BINARY_NAME="renderer"
+          BINARY_NAME="roar"
           if [ "${{ matrix.goos }}" == "windows" ]; then
-            BINARY_NAME="renderer.exe"
+            BINARY_NAME="roar.exe"
           fi
-          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -v -o build/${BINARY_NAME} ./cmd/renderer/
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -v -o build/${BINARY_NAME} ./cmd/roar/
         
       - name: Upload artifact
         # Загружаем собранный бинарник как артефакт этого воркфлоу
         uses: actions/upload-artifact@v4
         with:
-          name: renderer-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: roar-${{ matrix.goos }}-${{ matrix.goarch }}
           path: build/

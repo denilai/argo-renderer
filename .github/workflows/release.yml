@@ -46,13 +46,13 @@ jobs:
                 continue
               fi
 
-              BINARY_NAME="renderer-${GOOS}-${GOARCH}"
+              BINARY_NAME="roar-${GOOS}-${GOARCH}"
               if [ "$GOOS" == "windows" ]; then
                 BINARY_NAME+=".exe"
               fi
 
               echo "Building for $GOOS/$GOARCH..."
-              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -v -o build/${BINARY_NAME} ./cmd/renderer/
+              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -v -o build/${BINARY_NAME} ./cmd/roar/
 
               echo "Uploading ${BINARY_NAME} to release..."
               # Используем GitHub CLI для загрузки артефакта в созданный релиз

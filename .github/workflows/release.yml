@@ -56,7 +56,7 @@ jobs:
 
               echo "Uploading ${BINARY_NAME} to release..."
               # Используем GitHub CLI для загрузки артефакта в созданный релиз
-              gh release upload ${{ github.ref_name }} build/${BINARY_NAME}
+              gh release upload ${{ github.ref_name }} build/${BINARY_NAME} --clobber
             done
           done
         env:

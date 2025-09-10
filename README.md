@@ -1,0 +1,120 @@
+# Werf Argo Renderer
+
+Специализированная утилита на Go для автоматизации рендеринга Helm-чартов в рамках GitOps-процесса, построенного на паттерне "App of Apps" в Argo CD.
+
+Этот инструмент имитирует часть логики `werf` по работе с переменными окружения, позволяя декларативно описывать параметры рендеринга непосредственно в манифесте `Application`, и решает следующие задачи:
+
+-   Рендерит корневой Helm-чарт ("app-of-apps").
+-   Парсит сгенерированные манифесты `Argo CD Application`.
+-   Для каждого приложения клонирует соответствующий Git-репозиторий по SSH.
+-   Рендерит его Helm-чарт, используя параметры, заданные в `spec.source.plugin.env`.
+-   Сохраняет итоговые манифесты в структурированную директорию на основе лейблов.
+
+
+## Ожидаемая структура манифеста Application
+
+Чтобы утилита работала корректно, ваши `Application` манифесты должны иметь определенную структуру:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: dev-inf1-my-service
+  # Лейблы используются для формирования пути сохранения
+  labels:
+    env: dev
+    instance: inf1
+  # Аннотации используются для указания источника кода
+  annotations:
+    rawRepository: https://gitlab.com/my-org/my-product.git
+    rawPath: stable/my-service # Путь к директории сервиса внутри репозитория
+spec:
+  project: default
+  source:
+    # targetRevision остается основным источником версии
+    targetRevision: main
+    # Все параметры для рендеринга находятся здесь
+    plugin:
+      env:
+        # Преобразуется в: --set global.instance=inf1
+        - name: WERF_SET_INSTANCE
+          value: global.instance=inf1
+
+        # Преобразуется в: --set global.image.tag=v1.2.3
+        - name: WERF_SET_IMAGE_TAG
+          value: global.image.tag=v1.2.3
+
+        # Файлы будут применены в порядке индексов (0, 1, 2...)
+        # Путь относителен директории сервиса (указанной в rawPath)
+        - name: WERF_VALUES_0
+          value: .helm/values.yaml
+        - name: WERF_VALUES_1
+          value: .helm/values.dev.yaml
+  destination:
+    # ...
+```
+
+## Ключевые возможности
+
+-   **App of Apps**: Обрабатывает корневой чарт, который генерирует множество дочерних `Application`.
+-   **Декларативная конфигурация**: Все параметры для рендеринга (`--set`, `--values`) берутся из `plugin.env` манифеста `Application`.
+-   **SSH-аутентификация**: Клонирует репозитории по SSH, используя `ssh-agent`.
+
+## Пререквизиты
+
+Для работы утилиты на вашей машине или в CI/CD окружении должны быть установлены:
+
+1.  **Go** (версия 1.19+ для сборки)
+2.  **Git** (command-line tool)
+3.  **Helm** (command-line tool, v3+)
+4.  **Настроенный SSH-агент** с ключом, имеющим доступ к вашим Git-репозиториям.
+    ```bash
+    # Пример настройки ssh-agent
+    eval "$(ssh-agent -s)"
+    ssh-add ~/.ssh/your_private_key
+    ```
+
+## Сборка
+
+1.  Клонируйте репозиторий:
+    ```bash
+    git clone <your-repo-url>
+    cd argo-renderer
+    ```
+2.  Загрузите зависимости:
+    ```bash
+    go mod tidy
+    ```
+3.  Соберите бинарный файл:
+    ```bash
+    go build -o renderer ./cmd/renderer/
+    ```
+    В корне проекта появится исполняемый файл `renderer`.
+
+## Использование
+
+Утилита запускается из командной строки со следующими флагами:
+
+-   `--chart-path` (`-c`): **(Обязательный)** Путь к корневому "app-of-apps" Helm-чарту.
+-   `--values` (`-f`): Путь к values-файлу для "app-of-apps" чарта. Можно указывать несколько раз.
+-   `--output-dir` (`-o`): Директория для сохранения итоговых манифестов (по умолчанию: `rendered`).
+
+#### Пример запуска
+
+```bash
+./renderer \
+  --chart-path ./deploy/charts/app-of-apps \
+  --values ./deploy/values/dev.yaml \
+  --output-dir ./manifests
+```
+
+## Как это работает
+
+1.  **Рендеринг "App of Apps"**: Сначала выполняется `helm template` для чарта, указанного в `--chart-path`.
+2.  **Парсинг**: Утилита читает YAML-вывод и находит все ресурсы с `kind: Application`.
+3.  **Итерация по приложениям**: Для каждого найденного `Application` выполняются следующие шаги:
+    1.  **Извлечение метаданных**: Из `metadata.annotations` берутся URL репозитория (`rawRepository`) и путь к сервису (`rawPath`).
+    2.  **Клонирование (с кэшем)**: Проверяется, не был ли уже склонирован этот репозиторий с этой же ревизией (`targetRevision`). Если нет — выполняется `git clone`.
+    3.  **Извлечение Helm-параметров**: Из `spec.source.plugin.env` парсятся все переменные `WERF_SET_*` и `WERF_VALUES_*`.
+    4.  **Финальный рендеринг**: Выполняется `helm template` для чарта приложения со всеми извлеченными параметрами.
+    5.  **Сохранение**: Итоговый YAML-файл сохраняется в директорию, сформированную из `--output-dir` и лейблов `env` и `instance` (например, `./manifests/dev/inf1/my-app.yaml`).

@@ -82,6 +82,7 @@ func newApplicationFromRaw(raw rawApplication, logCtx *logrus.Entry) (Applicatio
 		Name:           raw.Metadata.Name,
 		TargetRevision: raw.Spec.Source.TargetRevision,
 		Setters:        make(map[string]string),
+		ValuesFiles:    []string{},
 	}
 
 	var instanceFromLabel, envFromLabel string

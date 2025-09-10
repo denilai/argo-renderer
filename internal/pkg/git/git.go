@@ -14,10 +14,10 @@ func Clone(repoURL, revision, targetPath string) error {
 
 	opts := &git.CloneOptions{
 		URL:           repoURL,
-		ReferenceName: plumbing.NewBranchReferenceName(revision), // Указываем, какую ветку клонировать
+		ReferenceName: plumbing.NewBranchReferenceName(revision),
 		SingleBranch:  true,
-		Depth:         1,   // Аналог --depth=1
-		Progress:      nil, // Можно передать os.Stdout для вывода прогресса
+		Depth:         1,
+		Progress:      nil,
 	}
 
 	_, err := git.PlainClone(targetPath, false, opts)

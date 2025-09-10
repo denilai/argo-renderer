@@ -106,7 +106,7 @@ go test -v -tags=integration ./...
 1.  Клонируйте репозиторий:
     ```bash
     git clone <your-repo-url>
-    cd argo-renderer
+    cd roar
     ```
 2.  Загрузите зависимости:
     ```bash

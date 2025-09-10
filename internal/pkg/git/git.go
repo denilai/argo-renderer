@@ -1,10 +1,10 @@
+// /roar/internal/pkg/git/git.go
 package git
 
 import (
 	"fmt"
 	"os/exec"
-
-	"github.com/sirupsen/logrus"
+	"roar/internal/pkg/logger"
 )
 
 func Clone(repoURL, revision, targetPath string) error {
@@ -16,9 +16,7 @@ func Clone(repoURL, revision, targetPath string) error {
 		repoURL,
 		targetPath,
 	)
-
-	logrus.WithField("cmd", cmd.String()).Info("Executing command")
-
+	logger.Log.WithField("cmd", cmd.String()).Info("Executing command")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git clone failed for %s (revision %s): %w\nOutput:\n%s", repoURL, revision, err, string(output))

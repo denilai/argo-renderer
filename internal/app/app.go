@@ -12,8 +12,7 @@ import (
 	"roar/internal/pkg/argo"
 	"roar/internal/pkg/git"
 	"roar/internal/pkg/helm"
-
-	"github.com/sirupsen/logrus"
+	"roar/internal/pkg/logger"
 )
 
 type Config struct {
@@ -35,7 +34,7 @@ func Run(cfg Config) error {
 		return fmt.Errorf("failed to create temp directory: %w", err)
 	}
 	defer os.RemoveAll(tempDir)
-	logrus.Infof("Using temporary directory for clones: %s", tempDir)
+	logger.Log.Infof("Using temporary directory for clones: %s", tempDir)
 
 	if err := os.MkdirAll(cfg.OutputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory %s: %w", cfg.OutputDir, err)
@@ -55,69 +54,60 @@ func Run(cfg Config) error {
 	for _, app := range applications {
 		err := processApplication(app, state)
 		if err != nil {
-			logrus.WithField("application", app.Metadata.Name).Errorf("Could not process application: %v. Skipping.", err)
+			logger.Log.WithField("application", app.Name).Errorf("Could not process application: %v. Skipping.", err)
 		}
 	}
 
-	logrus.Info("All done!")
+	logger.Log.Info("All done!")
 	return nil
 }
 
 func renderAndParseAppOfApps(chartPath string, valuesFiles []string) ([]argo.Application, error) {
-	logrus.Info("Rendering the main 'app-of-apps' chart...")
+	logger.Log.Info("Rendering the main 'app-of-apps' chart...")
 	appOfAppsOpts := helm.RenderOptions{ReleaseName: "app-of-apps", ChartPath: chartPath, ValuesFiles: valuesFiles}
 	appOfAppsManifests, err := helm.Template(appOfAppsOpts)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to render app-of-apps chart: %w", err)
 	}
 
-	logrus.Info("Parsing for Argo CD applications...")
+	logger.Log.Info("Parsing for Argo CD applications...")
 	applications, err := argo.ParseApplications(appOfAppsManifests)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse Argo applications: %w", err)
 	}
 
-	logrus.Infof("Found %d applications to process.", len(applications))
+	logger.Log.Infof("Found %d applications to process.", len(applications))
 	return applications, nil
 }
 
 func processApplication(app argo.Application, state *appState) error {
-	logCtx := logrus.WithField("application", app.Metadata.Name)
+	logCtx := logger.Log.WithField("application", app.Name)
 	logCtx.Info("Processing application...")
 
-	var werfSetValues map[string]string
-	var werfValuesFiles []string
+	werfSetValues, werfValuesFiles := processPluginEnv(app.PluginEnv)
+	logCtx.Infof("Found %d other --set values and %d --values files in manifest.", len(werfSetValues), len(werfValuesFiles))
 
-	if app.Spec.Source.Plugin != nil {
-		werfSetValues, werfValuesFiles = processPluginEnv(app.Spec.Source.Plugin.Env)
-		logCtx.Infof("Found %d --set values and %d --values files in manifest.", len(werfSetValues), len(werfValuesFiles))
+	if app.Instance != "" {
+		werfSetValues["global.instance"] = app.Instance
+		logCtx.Infof("Resolved final 'instance' to '%s'", app.Instance)
+	}
+	if app.Env != "" {
+		werfSetValues["global.env"] = app.Env
+		logCtx.Infof("Resolved final 'env' to '%s'", app.Env)
 	}
 
-	repoURL, ok := app.Metadata.Annotations["rawRepository"]
-	if !ok || repoURL == "" {
-		return fmt.Errorf("missing required annotation 'rawRepository' or it is empty")
-	}
-
-	chartSubPath, ok := app.Metadata.Annotations["rawPath"]
-	if !ok {
-		logCtx.Warn("Annotation 'rawPath' is missing. Defaulting to repository root ('.').")
-		chartSubPath = "."
-	}
-
-	sshURL, err := convertHTTPtoSSH(repoURL)
+	sshURL, err := convertHTTPtoSSH(app.RepoURL)
 	if err != nil {
-		return fmt.Errorf("invalid repo URL '%s': %w", repoURL, err)
+		return fmt.Errorf("invalid repo URL '%s': %w", app.RepoURL, err)
 	}
 
-	cacheKey := fmt.Sprintf("%s@%s", sshURL, app.Spec.Source.TargetRevision)
+	cacheKey := fmt.Sprintf("%s@%s", sshURL, app.TargetRevision)
 	repoPath, isCached := state.clonedRepos[cacheKey]
 	if !isCached {
 		state.cloneCounter++
 		repoPath = filepath.Join(state.tempDir, fmt.Sprintf("clone-%d", state.cloneCounter))
 		logCtx.Infof("Cloning %s to %s", cacheKey, repoPath)
-		err = git.Clone(sshURL, app.Spec.Source.TargetRevision, repoPath)
-
+		err = git.Clone(sshURL, app.TargetRevision, repoPath)
 		if err != nil {
 			return fmt.Errorf("failed to clone repo: %w", err)
 		}
@@ -126,36 +116,34 @@ func processApplication(app argo.Application, state *appState) error {
 		logCtx.Infof("Using cached repository from path: %s", repoPath)
 	}
 
-	appServicePath := filepath.Join(repoPath, chartSubPath)
+	appServicePath := filepath.Join(repoPath, app.Path)
 	appChartPath := filepath.Join(appServicePath, ".helm")
 	absoluteValuesFiles := make([]string, len(werfValuesFiles))
-
 	for i, file := range werfValuesFiles {
 		absoluteValuesFiles[i] = filepath.Join(appServicePath, file)
 	}
 
-	appOpts := helm.RenderOptions{ReleaseName: app.Metadata.Name, ChartPath: appChartPath, ValuesFiles: absoluteValuesFiles, SetValues: werfSetValues}
+	appOpts := helm.RenderOptions{ReleaseName: app.Name, ChartPath: appChartPath, ValuesFiles: absoluteValuesFiles, SetValues: werfSetValues}
 	renderedApp, err := helm.Template(appOpts)
 	if err != nil {
 		return fmt.Errorf("failed to render chart: %w", err)
 	}
 
 	finalOutputDir := state.outputDir
-	if env, ok := app.Metadata.Labels["env"]; ok && env != "" {
-		finalOutputDir = filepath.Join(finalOutputDir, env)
-		logCtx.Infof("Found 'env' label: '%s'. Saving to environment directory.", env)
+	if app.Env != "" {
+		finalOutputDir = filepath.Join(finalOutputDir, app.Env)
+		logCtx.Infof("Using resolved 'env': '%s' for output directory.", app.Env)
 	}
-
-	if instance, ok := app.Metadata.Labels["instance"]; ok && instance != "" {
-		finalOutputDir = filepath.Join(finalOutputDir, instance)
-		logCtx.Infof("Found 'instance' label: '%s'. Saving to instance subdirectory.", instance)
+	if app.Instance != "" {
+		finalOutputDir = filepath.Join(finalOutputDir, app.Instance)
+		logCtx.Infof("Using resolved 'instance': '%s' for output directory.", app.Instance)
 	}
 
 	if err := os.MkdirAll(finalOutputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output subdirectory %s: %w", finalOutputDir, err)
 	}
 
-	outputFile := filepath.Join(finalOutputDir, fmt.Sprintf("%s.yaml", app.Metadata.Name))
+	outputFile := filepath.Join(finalOutputDir, fmt.Sprintf("%s.yaml", app.Name))
 	err = os.WriteFile(outputFile, renderedApp, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to write manifest to %s: %w", outputFile, err)
@@ -178,22 +166,20 @@ func processPluginEnv(envVars []argo.EnvVar) (map[string]string, []string) {
 			if len(parts) == 2 {
 				setValues[parts[0]] = parts[1]
 			} else {
-				logrus.Warnf("Skipping invalid WERF_SET variable '%s' with value '%s'", env.Name, env.Value)
+				logger.Log.Warnf("Skipping invalid WERF_SET variable '%s' with value '%s'", env.Name, env.Value)
 			}
 		} else if strings.HasPrefix(env.Name, "WERF_VALUES_") {
 			indexStr := strings.TrimPrefix(env.Name, "WERF_VALUES_")
 			index, err := strconv.Atoi(indexStr)
 			if err != nil {
-				logrus.Warnf("Could not parse index from '%s'. Skipping.", env.Name)
+				logger.Log.Warnf("Could not parse index from '%s'. Skipping.", env.Name)
 				continue
 			}
 			indexedValues = append(indexedValues, indexedFile{index: index, path: env.Value})
 		}
 	}
-
 	sort.Slice(indexedValues, func(i, j int) bool { return indexedValues[i].index < indexedValues[j].index })
 	var valuesFiles []string
-
 	for _, file := range indexedValues {
 		valuesFiles = append(valuesFiles, file.path)
 	}
@@ -204,16 +190,13 @@ func convertHTTPtoSSH(httpURL string) (string, error) {
 	if strings.HasPrefix(httpURL, "git@") {
 		return httpURL, nil
 	}
-
 	parsedURL, err := url.Parse(httpURL)
 	if err != nil {
 		return "", fmt.Errorf("could not parse URL: %w", err)
 	}
-
 	if parsedURL.Scheme != "https" && parsedURL.Scheme != "http" {
 		return httpURL, nil
 	}
-
 	path := strings.TrimPrefix(parsedURL.Path, "/")
 	sshURL := fmt.Sprintf("git@%s:%s", parsedURL.Host, path)
 	return sshURL, nil

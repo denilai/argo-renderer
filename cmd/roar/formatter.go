@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -28,22 +29,18 @@ func (f *CustomFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	}
 
 	timestamp := entry.Time.Format("2006-01-02T15:04:05-07:00")
-	b.WriteString(timestamp)
-	b.WriteString(" ")
-
 	levelText := strings.ToUpper(entry.Level.String())
 	levelColor := getColorByLevel(entry.Level)
-	fmt.Fprintf(b, "%s%s%s ", levelColor, levelText, colorReset)
 
-	b.WriteString(entry.Message)
+	fmt.Fprintf(b, "%s %s%s%s %s", timestamp, levelColor, levelText, colorReset, entry.Message)
 
 	if len(entry.Data) > 0 {
-
+		b.WriteString(" ")
 		keys := make([]string, 0, len(entry.Data))
 		for k := range entry.Data {
 			keys = append(keys, k)
 		}
-
+		sort.Strings(keys)
 		for _, k := range keys {
 			fmt.Fprintf(b, "%s%s=%v%s ", colorBlue, k, entry.Data[k], colorReset)
 		}

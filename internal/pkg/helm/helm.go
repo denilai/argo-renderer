@@ -1,11 +1,11 @@
+// /roar/internal/pkg/helm/helm.go
 package helm
 
 import (
 	"fmt"
 	"os/exec"
+	"roar/internal/pkg/logger"
 	"strings"
-
-	"github.com/sirupsen/logrus"
 )
 
 type RenderOptions struct {
@@ -16,7 +16,6 @@ type RenderOptions struct {
 }
 
 func Template(opts RenderOptions) ([]byte, error) {
-
 	args := []string{"template"}
 	if opts.ReleaseName != "" {
 		args = append(args, opts.ReleaseName)
@@ -29,11 +28,8 @@ func Template(opts RenderOptions) ([]byte, error) {
 		setValue := strings.Join([]string{key, value}, "=")
 		args = append(args, "--set", setValue)
 	}
-
 	cmd := exec.Command("helm", args...)
-
-	logrus.WithField("cmd", cmd.String()).Info("Executing command")
-
+	logger.Log.WithField("cmd", cmd.String()).Info("Executing command")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("helm template failed: %w\nOutput:\n%s", err, string(output))

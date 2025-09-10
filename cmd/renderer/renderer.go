@@ -4,7 +4,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 
-	"werf-argo-renderer/internal/app"
+	"argo-renderer/internal/app"
 )
 
 func main() {

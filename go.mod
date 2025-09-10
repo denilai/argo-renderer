@@ -1,4 +1,4 @@
-module werf-argo-renderer
+module argo-renderer
 
 go 1.24.4
 

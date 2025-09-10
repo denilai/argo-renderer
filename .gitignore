@@ -28,7 +28,8 @@ go.work.sum
 .env
 
 # local runs
-.local
+.local/
+rendered/
 
 # build files
 build/

@@ -7,12 +7,11 @@ on:
       - 'v*.*.*'
 
 jobs:
-  # --- ЗАДАЧА: СБОРКА И ПУБЛИКАЦИЯ РЕЛИЗА ---
   release:
     name: Build and Release
     runs-on: ubuntu-latest
     
-    # Даем воркфлоу права на создание релиза
+    # Даем воркфлоу права на запись контента (создание релиза и загрузку файлов)
     permissions:
       contents: write
       
@@ -25,25 +24,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Создаем релиз. Он будет в статусе "draft", пока мы не загрузим артефакты
-      - name: Create Release
+      # Шаг 1: Создаем черновик релиза, чтобы получить URL для загрузки
+      - name: Create Draft Release
         id: create_release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: true # Сначала создаем черновик
+          tag_name: ${{ github.ref_name }} # Используем ref_name для получения чистого тега (например, v1.0.0)
+          release_name: Release ${{ github.ref_name }}
+          draft: true # <-- Очень важно: создаем как черновик
           prerelease: false
 
-      # Кросс-компиляция в цикле
+      # Шаг 2: Собираем и загружаем бинарники в цикле
       - name: Build and Upload Binaries
-        # Цикл по всем нужным платформам
         run: |
           for GOOS in linux windows darwin; do
             for GOARCH in amd64 arm64; do
-              # Пропускаем некоторые комбинации
+              # Пропускаем комбинации, которые не нужны или не существуют
               if [ "$GOOS" == "windows" ] && [ "$GOARCH" == "arm64" ]; then
                 continue
               fi
@@ -56,17 +54,16 @@ jobs:
               echo "Building for $GOOS/$GOARCH..."
               CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -v -o build/${BINARY_NAME} ./cmd/renderer/
 
-              echo "Uploading ${BINARY_NAME}..."
-              gh release upload ${{ github.ref }} build/${BINARY_NAME}
+              echo "Uploading ${BINARY_NAME} to release..."
+              # Используем GitHub CLI для загрузки артефакта в созданный релиз
+              gh release upload ${{ github.ref_name }} build/${BINARY_NAME}
             done
           done
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
-      # Публикуем релиз (убираем статус "draft")
+      # Шаг 3: Публикуем релиз (убираем статус "draft")
       - name: Publish Release
-        uses: actions/publish-release@v1
+        run: gh release edit ${{ github.ref_name }} --draft=false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          release_id: ${{ steps.create_release.outputs.id }}

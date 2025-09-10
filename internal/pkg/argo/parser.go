@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"sort"
+	"strconv"
 	"strings"
 
 	"roar/internal/pkg/logger"
@@ -20,6 +22,7 @@ type Application struct {
 	Path           string
 	TargetRevision string
 	PluginEnv      []EnvVar
+	ValuesFiles    []string
 }
 
 type EnvVar struct {
@@ -80,25 +83,56 @@ func newApplicationFromRaw(raw rawApplication, logCtx *logrus.Entry) (Applicatio
 		TargetRevision: raw.Spec.Source.TargetRevision,
 	}
 
-	instanceFromLabel := raw.Metadata.Labels["instance"]
-	envFromLabel := raw.Metadata.Labels["env"]
+	var instanceFromLabel, envFromLabel string
+	if raw.Metadata.Labels != nil {
+		if val, ok := raw.Metadata.Labels["instance"]; ok {
+			instanceFromLabel = val
+		}
+		if val, ok := raw.Metadata.Labels["env"]; ok {
+			envFromLabel = val
+		}
+	}
 
 	var instanceFromPlugin, envFromPlugin string
 	var remainingPluginEnv []EnvVar
 
+	type indexedValueFile struct {
+		index int
+		path  string
+	}
+	var indexedValues []indexedValueFile
+
 	if raw.Spec.Source.Plugin != nil {
 		for _, envVar := range raw.Spec.Source.Plugin.Env {
-			switch envVar.Name {
-			case "WERF_SET_INSTANCE":
+			switch {
+			case envVar.Name == "WERF_SET_INSTANCE":
 				instanceFromPlugin = extractValueFromWerfSet(envVar.Value)
-			case "WERF_SET_ENV":
+				remainingPluginEnv = append(remainingPluginEnv, envVar)
+			case envVar.Name == "WERF_SET_ENV":
 				envFromPlugin = extractValueFromWerfSet(envVar.Value)
+				remainingPluginEnv = append(remainingPluginEnv, envVar)
+			case strings.HasPrefix(envVar.Name, "WERF_VALUES_"):
+				indexStr := strings.TrimPrefix(envVar.Name, "WERF_VALUES_")
+				index, err := strconv.Atoi(indexStr)
+				if err != nil {
+					logCtx.Warnf("Could not parse index from '%s'. Skipping.", envVar.Name)
+					continue
+				}
+				indexedValues = append(indexedValues, indexedValueFile{index: index, path: envVar.Value})
 			default:
 				remainingPluginEnv = append(remainingPluginEnv, envVar)
 			}
 		}
 	}
 	app.PluginEnv = remainingPluginEnv
+
+	sort.Slice(indexedValues, func(i, j int) bool {
+		return indexedValues[i].index < indexedValues[j].index
+	})
+	app.ValuesFiles = make([]string, len(indexedValues))
+	for i, iv := range indexedValues {
+		app.ValuesFiles[i] = iv.path
+	}
 
 	if instanceFromLabel != "" && instanceFromPlugin != "" && instanceFromLabel != instanceFromPlugin {
 		return Application{}, fmt.Errorf("conflicting values for 'instance': label is '%s', plugin.env is '%s'", instanceFromLabel, instanceFromPlugin)
@@ -133,6 +167,7 @@ func newApplicationFromRaw(raw rawApplication, logCtx *logrus.Entry) (Applicatio
 		logCtx.Warnf("missing 'rawPath' annotation. Falling back to spec.source.path='%s'", raw.Spec.Source.Path)
 		path = raw.Spec.Source.Path
 		if path == "" {
+			logCtx.Warn("both 'rawPath' annotation and 'spec.source.path' are empty. Falling back to '.'")
 			path = "."
 		}
 	}

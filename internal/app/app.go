@@ -5,8 +5,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 
 	"roar/internal/pkg/argo"
@@ -84,8 +82,8 @@ func processApplication(app argo.Application, state *appState) error {
 	logCtx := logger.Log.WithField("application", app.Name)
 	logCtx.Info("Processing application...")
 
-	werfSetValues, werfValuesFiles := processPluginEnv(app.PluginEnv)
-	logCtx.Infof("Found %d other --set values and %d --values files in manifest.", len(werfSetValues), len(werfValuesFiles))
+	werfSetValues := processPluginEnv(app.PluginEnv)
+	logCtx.Infof("Found %d other --set values and %d --values files.", len(werfSetValues), len(app.ValuesFiles))
 
 	if app.Instance != "" {
 		werfSetValues["global.instance"] = app.Instance
@@ -118,8 +116,8 @@ func processApplication(app argo.Application, state *appState) error {
 
 	appServicePath := filepath.Join(repoPath, app.Path)
 	appChartPath := filepath.Join(appServicePath, ".helm")
-	absoluteValuesFiles := make([]string, len(werfValuesFiles))
-	for i, file := range werfValuesFiles {
+	absoluteValuesFiles := make([]string, len(app.ValuesFiles))
+	for i, file := range app.ValuesFiles {
 		absoluteValuesFiles[i] = filepath.Join(appServicePath, file)
 	}
 
@@ -152,14 +150,8 @@ func processApplication(app argo.Application, state *appState) error {
 	return nil
 }
 
-type indexedFile struct {
-	index int
-	path  string
-}
-
-func processPluginEnv(envVars []argo.EnvVar) (map[string]string, []string) {
+func processPluginEnv(envVars []argo.EnvVar) map[string]string {
 	setValues := make(map[string]string)
-	var indexedValues []indexedFile
 	for _, env := range envVars {
 		if strings.HasPrefix(env.Name, "WERF_SET_") {
 			parts := strings.SplitN(env.Value, "=", 2)
@@ -168,22 +160,9 @@ func processPluginEnv(envVars []argo.EnvVar) (map[string]string, []string) {
 			} else {
 				logger.Log.Warnf("Skipping invalid WERF_SET variable '%s' with value '%s'", env.Name, env.Value)
 			}
-		} else if strings.HasPrefix(env.Name, "WERF_VALUES_") {
-			indexStr := strings.TrimPrefix(env.Name, "WERF_VALUES_")
-			index, err := strconv.Atoi(indexStr)
-			if err != nil {
-				logger.Log.Warnf("Could not parse index from '%s'. Skipping.", env.Name)
-				continue
-			}
-			indexedValues = append(indexedValues, indexedFile{index: index, path: env.Value})
 		}
 	}
-	sort.Slice(indexedValues, func(i, j int) bool { return indexedValues[i].index < indexedValues[j].index })
-	var valuesFiles []string
-	for _, file := range indexedValues {
-		valuesFiles = append(valuesFiles, file.path)
-	}
-	return setValues, valuesFiles
+	return setValues
 }
 
 func convertHTTPtoSSH(httpURL string) (string, error) {

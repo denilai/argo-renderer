@@ -17,7 +17,7 @@ func setupIntegrationTest(t *testing.T) (string, func()) {
 	binDir := t.TempDir()
 	cmdLogPath := filepath.Join(t.TempDir(), "commands.log")
 
-	// Создаем фейковый git (без изменений)
+	// Создаем фейковый git
 	gitScriptPath := filepath.Join(binDir, "git")
 	gitScript := fmt.Sprintf(`#!/bin/bash
 echo "git $@" >> %s
@@ -54,7 +54,7 @@ func TestAppRun_Integration(t *testing.T) {
 	cmdLogPath, cleanup := setupIntegrationTest(t)
 	defer cleanup()
 
-	// 1. Готовим входные данные (без изменений)
+	// 1. Готовим входные данные
 	tempDir := t.TempDir()
 	outputDir := filepath.Join(tempDir, "output")
 	appOfAppsDir := filepath.Join(tempDir, "app-of-apps-chart")
@@ -65,9 +65,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: dev-inf1-my-service
-  labels:
-  	env: dev
-	instance: inf1
+  labels: {env: dev, instance: inf1}
   annotations:
     rawRepository: "https://gitlab.com/my-org/my-product.git"
     rawPath: "stable/my-service"
@@ -81,8 +79,9 @@ spec:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(appOfAppsDir, "templates", "app.yaml"), []byte(appOfAppsTemplate), 0644))
 
-	// 2. Запускаем основную логику приложения (без изменений)
+	// 2. Запускаем основную логику приложения
 	cfg := Config{ChartPath: appOfAppsDir, OutputDir: outputDir}
+	fmt.Print(cfg)
 	err := Run(cfg)
 	require.NoError(t, err)
 
@@ -95,7 +94,7 @@ spec:
 	require.NoError(t, err)
 	require.Contains(t, string(outputContent), "kind: FakedHelmOutputForApp")
 
-	// Проверяем, что были вызваны правильные команды (без изменений)
+	// Проверяем, что были вызваны правильные команды
 	cmdLogContent, err := os.ReadFile(cmdLogPath)
 	require.NoError(t, err)
 	cmdLog := string(cmdLogContent)

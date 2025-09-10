@@ -120,24 +120,23 @@ go test -v -tags=integration ./...
 
 ## Использование
 
-Утилита запускается из командной строки со следующими флагами:
+Утилита запускается из командной строки со следующими флагами и аргументами:
 
--   `--chart-path` (`-c`): **(Обязательный)** Путь к корневому "app-of-apps" Helm-чарту.
+-   `CHART_PATH`: **(Обязательный)** Путь к корневому "app-of-apps" Helm-чарту.
 -   `--values` (`-f`): Путь к values-файлу для "app-of-apps" чарта. Можно указывать несколько раз.
 -   `--output-dir` (`-o`): Директория для сохранения итоговых манифестов (по умолчанию: `rendered`).
 
 #### Пример запуска
 
 ```bash
-./renderer \
-  --chart-path ./deploy/charts/app-of-apps \
+./renderer ./deploy/charts/app-of-apps \
   --values ./deploy/values/dev.yaml \
   --output-dir ./manifests
 ```
 
 ## Как это работает
 
-1.  **Рендеринг "App of Apps"**: Сначала выполняется `helm template` для чарта, указанного в `--chart-path`.
+1.  **Рендеринг "App of Apps"**: Сначала выполняется `helm template` для чарта, указанного в `CHART_PATH`.
 2.  **Парсинг**: Утилита читает YAML-вывод и находит все ресурсы с `kind: Application`.
 3.  **Итерация по приложениям**: Для каждого найденного `Application` выполняются следующие шаги:
     1.  **Извлечение метаданных**: Из `metadata.annotations` берутся URL репозитория (`rawRepository`) и путь к сервису (`rawPath`).

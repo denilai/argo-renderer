@@ -1,5 +1,3 @@
-// /werf-argo-renderer/internal/app/app.go
-
 package app
 
 import (
@@ -18,14 +16,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Config содержит конфигурацию для запуска приложения, получаемую из флагов.
 type Config struct {
 	ChartPath   string
 	ValuesFiles []string
 	OutputDir   string
 }
 
-// appState хранит внутреннее состояние процесса выполнения.
 type appState struct {
 	tempDir      string
 	outputDir    string
@@ -33,7 +29,6 @@ type appState struct {
 	cloneCounter int
 }
 
-// Run - это главная точка входа в бизнес-логику приложения.
 func Run(cfg Config) error {
 	tempDir, err := os.MkdirTemp("", "argo-charts-*")
 	if err != nil {
@@ -68,10 +63,7 @@ func Run(cfg Config) error {
 	return nil
 }
 
-// --- Внутренние функции, реализующие логику ---
-
 func renderAndParseAppOfApps(chartPath string, valuesFiles []string) ([]argo.Application, error) {
-	// ... (код этой и других функций остается точно таким же, как был в main.go)
 	logrus.Info("Rendering the main 'app-of-apps' chart...")
 	appOfAppsOpts := helm.RenderOptions{ReleaseName: "app-of-apps", ChartPath: chartPath, ValuesFiles: valuesFiles}
 	appOfAppsManifests, err := helm.Template(appOfAppsOpts)
@@ -90,7 +82,6 @@ func renderAndParseAppOfApps(chartPath string, valuesFiles []string) ([]argo.App
 }
 
 func processApplication(app argo.Application, state *appState) error {
-	// ... (код этой и других функций остается точно таким же, как был в main.go)
 	logCtx := logrus.WithField("application", app.Metadata.Name)
 	logCtx.Info("Processing application...")
 	var werfSetValues map[string]string
@@ -191,14 +182,21 @@ func processPluginEnv(envVars []argo.EnvVar) (map[string]string, []string) {
 	}
 	return setValues, valuesFiles
 }
+
 func convertHTTPtoSSH(httpURL string) (string, error) {
+	if strings.HasPrefix(httpURL, "git@") {
+		return httpURL, nil
+	}
+
 	parsedURL, err := url.Parse(httpURL)
 	if err != nil {
 		return "", fmt.Errorf("could not parse URL: %w", err)
 	}
+
 	if parsedURL.Scheme != "https" && parsedURL.Scheme != "http" {
 		return httpURL, nil
 	}
+
 	path := strings.TrimPrefix(parsedURL.Path, "/")
 	sshURL := fmt.Sprintf("git@%s:%s", parsedURL.Host, path)
 	return sshURL, nil

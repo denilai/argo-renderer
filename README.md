@@ -1,4 +1,4 @@
-# Argo Renderer
+# Renderer Orchestrator for Argo Repositories (roar)
 
 Специализированная утилита на Go для автоматизации рендеринга Helm-чартов в рамках GitOps-процесса, построенного на паттерне "App of Apps" в Argo CD.
 

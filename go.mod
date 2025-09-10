@@ -1,4 +1,4 @@
-module argo-renderer
+module roar
 
 go 1.24.4
 

@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"argo-renderer/internal/pkg/argo"
-	"argo-renderer/internal/pkg/git"
-	"argo-renderer/internal/pkg/helm"
+	"roar/internal/pkg/argo"
+	"roar/internal/pkg/git"
+	"roar/internal/pkg/helm"
 
 	"github.com/sirupsen/logrus"
 )

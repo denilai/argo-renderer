@@ -4,7 +4,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 
-	"argo-renderer/internal/app"
+	"roar/internal/app"
 )
 
 func main() {

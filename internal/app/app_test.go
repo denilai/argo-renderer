@@ -1,7 +1,7 @@
 package app
 
 import (
-	"argo-renderer/internal/pkg/argo"
+	"roar/internal/pkg/argo"
 	"testing"
 
 	"github.com/stretchr/testify/require"

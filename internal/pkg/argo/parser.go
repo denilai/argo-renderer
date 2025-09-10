@@ -21,7 +21,7 @@ type Application struct {
 	RepoURL        string
 	Path           string
 	TargetRevision string
-	PluginEnv      []EnvVar
+	Setters        map[string]string
 	ValuesFiles    []string
 }
 
@@ -81,6 +81,7 @@ func newApplicationFromRaw(raw rawApplication, logCtx *logrus.Entry) (Applicatio
 	app := Application{
 		Name:           raw.Metadata.Name,
 		TargetRevision: raw.Spec.Source.TargetRevision,
+		Setters:        make(map[string]string),
 	}
 
 	var instanceFromLabel, envFromLabel string
@@ -94,44 +95,25 @@ func newApplicationFromRaw(raw rawApplication, logCtx *logrus.Entry) (Applicatio
 	}
 
 	var instanceFromPlugin, envFromPlugin string
-	var remainingPluginEnv []EnvVar
-
-	type indexedValueFile struct {
-		index int
-		path  string
-	}
-	var indexedValues []indexedValueFile
-
 	if raw.Spec.Source.Plugin != nil {
+		app.ValuesFiles = extractAndSortValuesFiles(raw.Spec.Source.Plugin.Env, logCtx)
+
 		for _, envVar := range raw.Spec.Source.Plugin.Env {
-			switch {
-			case envVar.Name == "WERF_SET_INSTANCE":
-				instanceFromPlugin = extractValueFromWerfSet(envVar.Value)
-				remainingPluginEnv = append(remainingPluginEnv, envVar)
-			case envVar.Name == "WERF_SET_ENV":
-				envFromPlugin = extractValueFromWerfSet(envVar.Value)
-				remainingPluginEnv = append(remainingPluginEnv, envVar)
-			case strings.HasPrefix(envVar.Name, "WERF_VALUES_"):
-				indexStr := strings.TrimPrefix(envVar.Name, "WERF_VALUES_")
-				index, err := strconv.Atoi(indexStr)
-				if err != nil {
-					logCtx.Warnf("Could not parse index from '%s'. Skipping.", envVar.Name)
-					continue
+			if strings.HasPrefix(envVar.Name, "WERF_SET_") {
+				key, value := extractKeyValueFromWerfSet(envVar.Value)
+				if key != "" {
+					app.Setters[key] = value
+					if envVar.Name == "WERF_SET_INSTANCE" {
+						instanceFromPlugin = value
+					}
+					if envVar.Name == "WERF_SET_ENV" {
+						envFromPlugin = value
+					}
+				} else {
+					logCtx.Warnf("Skipping invalid WERF_SET variable '%s' with value '%s'", envVar.Name, envVar.Value)
 				}
-				indexedValues = append(indexedValues, indexedValueFile{index: index, path: envVar.Value})
-			default:
-				remainingPluginEnv = append(remainingPluginEnv, envVar)
 			}
 		}
-	}
-	app.PluginEnv = remainingPluginEnv
-
-	sort.Slice(indexedValues, func(i, j int) bool {
-		return indexedValues[i].index < indexedValues[j].index
-	})
-	app.ValuesFiles = make([]string, len(indexedValues))
-	for i, iv := range indexedValues {
-		app.ValuesFiles[i] = iv.path
 	}
 
 	if instanceFromLabel != "" && instanceFromPlugin != "" && instanceFromLabel != instanceFromPlugin {
@@ -176,10 +158,41 @@ func newApplicationFromRaw(raw rawApplication, logCtx *logrus.Entry) (Applicatio
 	return app, nil
 }
 
-func extractValueFromWerfSet(s string) string {
+func extractAndSortValuesFiles(envVars []EnvVar, logCtx *logrus.Entry) []string {
+	type indexedValueFile struct {
+		index int
+		path  string
+	}
+	var indexedValues []indexedValueFile
+
+	for _, envVar := range envVars {
+		if strings.HasPrefix(envVar.Name, "WERF_VALUES_") {
+			indexStr := strings.TrimPrefix(envVar.Name, "WERF_VALUES_")
+			index, err := strconv.Atoi(indexStr)
+			if err != nil {
+				logCtx.Warnf("Could not parse index from '%s'. Skipping.", envVar.Name)
+				continue
+			}
+			indexedValues = append(indexedValues, indexedValueFile{index: index, path: envVar.Value})
+		}
+	}
+
+	sort.Slice(indexedValues, func(i, j int) bool {
+		return indexedValues[i].index < indexedValues[j].index
+	})
+
+	sortedValuesFiles := make([]string, len(indexedValues))
+	for i, iv := range indexedValues {
+		sortedValuesFiles[i] = iv.path
+	}
+
+	return sortedValuesFiles
+}
+
+func extractKeyValueFromWerfSet(s string) (string, string) {
 	parts := strings.SplitN(s, "=", 2)
 	if len(parts) == 2 {
-		return parts[1]
+		return parts[0], parts[1]
 	}
-	return ""
+	return "", ""
 }

@@ -82,8 +82,12 @@ func processApplication(app argo.Application, state *appState) error {
 	logCtx := logger.Log.WithField("application", app.Name)
 	logCtx.Info("Processing application...")
 
-	werfSetValues := processPluginEnv(app.PluginEnv)
-	logCtx.Infof("Found %d other --set values and %d --values files.", len(werfSetValues), len(app.ValuesFiles))
+	werfSetValues := app.Setters
+	if werfSetValues == nil {
+		werfSetValues = make(map[string]string)
+	}
+
+	logCtx.Infof("Found %d --set values and %d --values files.", len(werfSetValues), len(app.ValuesFiles))
 
 	if app.Instance != "" {
 		werfSetValues["global.instance"] = app.Instance
@@ -148,21 +152,6 @@ func processApplication(app argo.Application, state *appState) error {
 	}
 	logCtx.Infof("Successfully rendered and saved manifest to %s", outputFile)
 	return nil
-}
-
-func processPluginEnv(envVars []argo.EnvVar) map[string]string {
-	setValues := make(map[string]string)
-	for _, env := range envVars {
-		if strings.HasPrefix(env.Name, "WERF_SET_") {
-			parts := strings.SplitN(env.Value, "=", 2)
-			if len(parts) == 2 {
-				setValues[parts[0]] = parts[1]
-			} else {
-				logger.Log.Warnf("Skipping invalid WERF_SET variable '%s' with value '%s'", env.Name, env.Value)
-			}
-		}
-	}
-	return setValues
 }
 
 func convertHTTPtoSSH(httpURL string) (string, error) {

@@ -65,7 +65,9 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: dev-inf1-my-service
-  labels: { env: dev, instance: inf1 }
+  labels:
+  	env: dev
+	instance: inf1
   annotations:
     rawRepository: "https://gitlab.com/my-org/my-product.git"
     rawPath: "stable/my-service"

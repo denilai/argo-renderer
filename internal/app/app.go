@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"roar/internal/pkg/argo"
 	"roar/internal/pkg/git"
@@ -21,6 +22,7 @@ type Config struct {
 }
 
 type appState struct {
+	mu           sync.Mutex
 	tempDir      string
 	outputDir    string
 	clonedRepos  map[string]string
@@ -28,6 +30,7 @@ type appState struct {
 }
 
 func Run(cfg Config) error {
+
 	tempDir, err := os.MkdirTemp("", "argo-charts-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp directory: %w", err)
@@ -50,14 +53,42 @@ func Run(cfg Config) error {
 		clonedRepos: make(map[string]string),
 	}
 
+	const maxConcurrency = 10
+	semaphore := make(chan struct{}, maxConcurrency)
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(applications))
+
 	for _, app := range applications {
-		err := processApplication(app, state)
-		if err != nil {
-			logger.Log.WithField("application", app.Name).Errorf("Could not process application: %v. Skipping.", err)
-		}
+		wg.Add(1)
+
+		semaphore <- struct{}{}
+
+		go func(app argo.Application) {
+			defer wg.Done()
+			// "Освобождаем" место в семафоре после завершения работы.
+			defer func() { <-semaphore }()
+
+			if err := processApplication(app, state); err != nil {
+				errChan <- err
+			}
+		}(app)
 	}
 
-	logger.Log.Info("All done!")
+	wg.Wait()
+	close(errChan)
+
+	var allErrors []error
+	for err := range errChan {
+		allErrors = append(allErrors, err)
+	}
+
+	if len(allErrors) > 0 {
+		logger.Log.Errorf("Completed with %d errors.", len(allErrors))
+		return fmt.Errorf("failed to process %d application(s), first error: %w", len(allErrors), allErrors[0])
+	}
+
+	logger.Log.Info("Processing applications sequentially...")
 	return nil
 }
 
@@ -105,16 +136,32 @@ func processApplication(app argo.Application, state *appState) error {
 	}
 
 	cacheKey := fmt.Sprintf("%s@%s", sshURL, app.TargetRevision)
+
+	// --- НАЧАЛО КРИТИЧЕСКОЙ СЕКЦИИ ---
+	state.mu.Lock()
 	repoPath, isCached := state.clonedRepos[cacheKey]
+	state.mu.Unlock()
+	// --- КОНЕЦ КРИТИЧЕСКОЙ СЕКЦИИ ---
+
 	if !isCached {
+		// --- НАЧАЛО КРИТИЧЕСКОЙ СЕКЦИИ (для обновления счетчика и карты) ---
+		state.mu.Lock()
 		state.cloneCounter++
 		repoPath = filepath.Join(state.tempDir, fmt.Sprintf("clone-%d", state.cloneCounter))
+		state.mu.Unlock()
+		// --- КОНЕЦ КРИТИЧЕСКОЙ СЕКЦИИ ---
+
 		logCtx.Infof("Cloning %s to %s", cacheKey, repoPath)
 		err = git.Clone(sshURL, app.TargetRevision, repoPath)
 		if err != nil {
 			return fmt.Errorf("failed to clone repo: %w", err)
 		}
+
+		// --- НАЧАЛО КРИТИЧЕСКОЙ СЕКЦИИ (для записи в кэш) ---
+		state.mu.Lock()
 		state.clonedRepos[cacheKey] = repoPath
+		state.mu.Unlock()
+		// --- КОНЕЦ КРИТИЧЕСКОЙ СЕКЦИИ ---
 	} else {
 		logCtx.Infof("Using cached repository from path: %s", repoPath)
 	}

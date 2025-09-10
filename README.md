@@ -73,23 +73,6 @@ spec:
     ssh-add ~/.ssh/your_private_key
     ```
 
-## Сборка
-
-1.  Клонируйте репозиторий:
-    ```bash
-    git clone <your-repo-url>
-    cd argo-renderer
-    ```
-2.  Загрузите зависимости:
-    ```bash
-    go mod tidy
-    ```
-3.  Соберите бинарный файл:
-    ```bash
-    go build -o renderer ./cmd/renderer/
-    ```
-    В корне проекта появится исполняемый файл `renderer`.
-
 ## Тестирование
 
 Проект содержит два типа тестов: юнит-тесты и интеграционные. Для удобства проверок используется библиотека `testify`.
@@ -116,6 +99,23 @@ go test -v ./...
 ```bash
 go test -v -tags=integration ./...
 ```
+
+## Сборка
+
+1.  Клонируйте репозиторий:
+    ```bash
+    git clone <your-repo-url>
+    cd argo-renderer
+    ```
+2.  Загрузите зависимости:
+    ```bash
+    go mod tidy
+    ```
+3.  Соберите бинарный файл:
+    ```bash
+    go build -o renderer ./cmd/renderer/
+    ```
+    В корне проекта появится исполняемый файл `renderer`.
 
 ## Использование
 

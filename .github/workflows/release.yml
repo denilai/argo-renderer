@@ -1,0 +1,72 @@
+name: Release
+
+# Триггер: запуск только при создании нового тега в формате v*.*.*
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  # --- ЗАДАЧА: СБОРКА И ПУБЛИКАЦИЯ РЕЛИЗА ---
+  release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    
+    # Даем воркфлоу права на создание релиза
+    permissions:
+      contents: write
+      
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Создаем релиз. Он будет в статусе "draft", пока мы не загрузим артефакты
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: true # Сначала создаем черновик
+          prerelease: false
+
+      # Кросс-компиляция в цикле
+      - name: Build and Upload Binaries
+        # Цикл по всем нужным платформам
+        run: |
+          for GOOS in linux windows darwin; do
+            for GOARCH in amd64 arm64; do
+              # Пропускаем некоторые комбинации
+              if [ "$GOOS" == "windows" ] && [ "$GOARCH" == "arm64" ]; then
+                continue
+              fi
+
+              BINARY_NAME="renderer-${GOOS}-${GOARCH}"
+              if [ "$GOOS" == "windows" ]; then
+                BINARY_NAME+=".exe"
+              fi
+
+              echo "Building for $GOOS/$GOARCH..."
+              CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -v -o build/${BINARY_NAME} ./cmd/renderer/
+
+              echo "Uploading ${BINARY_NAME}..."
+              gh release upload ${{ github.ref }} build/${BINARY_NAME}
+            done
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      # Публикуем релиз (убираем статус "draft")
+      - name: Publish Release
+        uses: actions/publish-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          release_id: ${{ steps.create_release.outputs.id }}

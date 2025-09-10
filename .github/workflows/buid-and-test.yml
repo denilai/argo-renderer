@@ -1,0 +1,86 @@
+name: Build and Test
+
+# Триггеры для запуска:
+# 1. Push в ветку main или master
+# 2. Pull Request в ветку main или master
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  # --- ЗАДАЧА 1: ЗАПУСК ТЕСТОВ ---
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22' # Используйте актуальную версию Go
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run all tests (unit + integration)
+        run: go test -v -tags=integration ./...
+
+  # --- ЗАДАЧА 2: СБОРКА БИНАРНИКОВ (зависит от успешного теста) ---
+  build:
+    name: Build binaries
+    needs: test # Эта задача запустится только если 'test' завершится успешно
+    runs-on: ubuntu-latest
+    
+    # Стратегия "матрица" для кросс-компиляции под разные ОС и архитектуры
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: darwin # macOS
+            goarch: amd64
+          - goos: darwin # macOS
+            goarch: arm64
+
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Build
+        # Собираем бинарник, добавляя .exe для Windows
+        run: |
+          BINARY_NAME="renderer"
+          if [ "${{ matrix.goos }}" == "windows" ]; then
+            BINARY_NAME="renderer.exe"
+          fi
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -v -o build/${BINARY_NAME} ./cmd/renderer/
+        
+      - name: Upload artifact
+        # Загружаем собранный бинарник как артефакт этого воркфлоу
+        uses: actions/upload-artifact@v4
+        with:
+          name: renderer-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: build/

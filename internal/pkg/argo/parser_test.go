@@ -1,7 +1,7 @@
 package argo
 
 import (
-	"io" // <-- Добавляем импорт
+	"io"
 	"testing"
 
 	"roar/internal/pkg/logger"
@@ -10,10 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Инициализируем глобальный логгер для тестов, чтобы избежать паники nil pointer
 func init() {
 	logger.Log = logrus.New()
-	// Отправляем вывод глобального логгера в никуда, чтобы не мешать тестам
 	logger.Log.SetOutput(io.Discard)
 }
 
@@ -116,14 +114,12 @@ spec: {source: {targetRevision: "dev"}}
 // одной структуры rawApplication в чистую Application.
 // Здесь мы полностью избегаем YAML и работаем с объектами Go.
 func TestNewApplicationFromRaw(t *testing.T) {
-	// Базовая структура для всех тестов, чтобы не повторяться
 	baseRawApp := func() rawApplication {
 		var app rawApplication
 		app.ApiVersion = "argoproj.io/v1alpha1"
 		app.Kind = "Application"
 		app.Metadata.Name = "test-app"
 		app.Spec.Source.TargetRevision = "main"
-		// Устанавливаем аннотацию по умолчанию, чтобы не получать ошибку отсутствия репозитория
 		app.Metadata.Annotations = map[string]string{"rawRepository": "https://default.repo"}
 		return app
 	}

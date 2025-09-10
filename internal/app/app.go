@@ -17,6 +17,7 @@ type Config struct {
 	ChartPath   string
 	ValuesFiles []string
 	OutputDir   string
+	LogLevel    string
 }
 
 type appState struct {

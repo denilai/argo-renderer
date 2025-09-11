@@ -21,20 +21,23 @@ func setupIntegrationTest(t *testing.T) (string, func()) {
 
 	helmScriptPath := filepath.Join(binDir, "helm")
 	helmScript := fmt.Sprintf(`#!/bin/bash
+# Записываем вызванную команду в лог для последующей проверки в тесте
 echo "helm $@" >> %s
 
 RELEASE_NAME=$2
 CHART_PATH=$3
 
+# Если это рендеринг 'app-of-apps', выводим содержимое его шаблонов
 if [ "$RELEASE_NAME" == "app-of-apps" ]; then
     if [ -d "${CHART_PATH}/templates" ]; then
         cat "${CHART_PATH}"/templates/*.yaml
     fi
 else
+    # Иначе, это дочернее приложение. Выводим фейковый YAML.
     echo "kind: FakedHelmOutputForApp"
-    echo "name: %s"
+    echo "name: ${RELEASE_NAME}"
 fi
-`, cmdLogPath, "%s")
+`, cmdLogPath)
 	require.NoError(t, os.WriteFile(helmScriptPath, []byte(helmScript), 0755))
 
 	originalPath := os.Getenv("PATH")
@@ -88,16 +91,14 @@ func TestAppRun_Integration(t *testing.T) {
 	cmdLogPath, cleanup := setupIntegrationTest(t)
 	defer cleanup()
 
-	// 1. Готовим входные данные
-	tempDir := t.TempDir()
-	outputDir := filepath.Join(tempDir, "output")
+	testRootDir := t.TempDir()
+	outputDir := filepath.Join(testRootDir, "output")
+	appOfAppsDir := filepath.Join(testRootDir, "app-of-apps-chart")
+	clonesDir := filepath.Join(testRootDir, "clones")
+	require.NoError(t, os.Mkdir(clonesDir, 0755))
 	fakeRepoPath := createFakeGitRepo(t)
-	appOfAppsDir := filepath.Join(tempDir, "app-of-apps-chart")
 	require.NoError(t, os.MkdirAll(filepath.Join(appOfAppsDir, "templates"), 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(appOfAppsDir, "Chart.yaml"), []byte("apiVersion: v2\nname: fake-chart\nversion: 0.1.0"), 0644))
-	// В шаблоне приложения мы теперь используем путь к нашему фейковому репозиторию
-	// вместо реального URL. TargetRevision мы поменяем на "master", т.к. go-git
-	// по умолчанию создает ветку master.
 	appOfAppsTemplate := fmt.Sprintf(`
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -111,7 +112,7 @@ metadata:
     rawPath: "stable/my-service"
 spec:
   source:
-    targetRevision: master # <-- go-git по умолчанию создает master
+    targetRevision: master # <-- go-git по умолчанию создает ветку master
     plugin:
       env:
         - name: WERF_SET_REPLICA_COUNT
@@ -119,30 +120,29 @@ spec:
 `, fakeRepoPath)
 	require.NoError(t, os.WriteFile(filepath.Join(appOfAppsDir, "templates", "app.yaml"), []byte(appOfAppsTemplate), 0644))
 
-	// 2. Запускаем основную логику приложения
-	cfg := Config{ChartPath: appOfAppsDir, OutputDir: outputDir}
+	cfg := Config{
+		ChartPath: appOfAppsDir,
+		OutputDir: outputDir,
+		tempDir_:  clonesDir,
+	}
 	err := Run(cfg)
 	require.NoError(t, err)
 
-	// 3. Проверяем результаты
 	expectedOutputFile := filepath.Join(outputDir, "dev", "inf1", "dev-inf1-my-service.yaml")
 	require.FileExists(t, expectedOutputFile)
 
 	outputContent, err := os.ReadFile(expectedOutputFile)
 	require.NoError(t, err)
 	require.Contains(t, string(outputContent), "kind: FakedHelmOutputForApp")
+	require.Contains(t, string(outputContent), "name: dev-inf1-my-service")
 
-	// Проверяем, что были вызваны правильные команды
 	cmdLogContent, err := os.ReadFile(cmdLogPath)
 	require.NoError(t, err)
 	cmdLog := string(cmdLogContent)
 
-	// Мы больше не можем проверить вызов 'git clone', так как его нет.
-	// Но мы можем быть уверены, что клонирование прошло успешно, потому что
-	// был вызван 'helm template' для дочернего приложения.
-	require.NotContains(t, cmdLog, "git clone") // Убеждаемся, что git не вызывался
+	require.NotContains(t, cmdLog, "git clone")
+	require.Contains(t, cmdLog, "helm template app-of-apps")
 	require.Contains(t, cmdLog, "helm template dev-inf1-my-service")
 	require.Contains(t, cmdLog, "--set global.replicaCount=3")
-	// Проверяем, что helm был вызван с правильным путем, который был создан после "клонирования"
-	require.Contains(t, cmdLog, filepath.Join(tempDir, "argo-charts-")) // Проверяем, что helm работает во временной директории
+	require.Contains(t, cmdLog, filepath.Join(clonesDir, "clone-1", "stable", "my-service", ".helm"))
 }

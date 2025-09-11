@@ -29,7 +29,7 @@ func Template(opts RenderOptions) ([]byte, error) {
 		args = append(args, "--set", setValue)
 	}
 	cmd := exec.Command("helm", args...)
-	logger.Log.WithField("cmd", cmd.String()).Info("Executing command")
+	logger.Log.WithField("cmd", cmd.String()).Info("[CMD]")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("helm template failed: %w\nOutput:\n%s", err, string(output))

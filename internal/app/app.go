@@ -18,6 +18,7 @@ type Config struct {
 	ValuesFiles []string
 	OutputDir   string
 	LogLevel    string
+	tempDir_    string
 }
 
 type appState struct {
@@ -28,11 +29,19 @@ type appState struct {
 }
 
 func Run(cfg Config) error {
-	tempDir, err := os.MkdirTemp("", "argo-charts-*")
-	if err != nil {
-		return fmt.Errorf("failed to create temp directory: %w", err)
+	var tempDir string
+	var err error
+
+	if cfg.tempDir_ != "" {
+		tempDir = cfg.tempDir_
+	} else {
+		tempDir, err = os.MkdirTemp("", "argo-charts-*")
+		if err != nil {
+			return fmt.Errorf("failed to create temp directory: %w", err)
+		}
+		defer os.RemoveAll(tempDir)
 	}
-	defer os.RemoveAll(tempDir)
+
 	logger.Log.Infof("Using temporary directory for clones: %s", tempDir)
 
 	if err := os.MkdirAll(cfg.OutputDir, 0755); err != nil {

@@ -114,9 +114,9 @@ go test -v -tags=integration ./...
     ```
 3.  Соберите бинарный файл:
     ```bash
-    go build -o renderer ./cmd/renderer/
+    go build -o roar ./cmd/roar/
     ```
-    В корне проекта появится исполняемый файл `renderer`.
+    В корне проекта появится исполняемый файл `roar`.
 
 ## Использование
 
@@ -129,7 +129,7 @@ go test -v -tags=integration ./...
 #### Пример запуска
 
 ```bash
-./renderer ./deploy/charts/app-of-apps \
+./roar ./deploy/charts/app-of-apps \
   --values ./deploy/values/dev.yaml \
   --output-dir ./manifests
 ```
